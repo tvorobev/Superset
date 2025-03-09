@@ -7,5 +7,5 @@
 * добавлены необходимые фича флаги 
 
 Для установки необходимо:
-`git clone https://github.com/tvorobev/Superset.git` - клонируем
+`git clone https://github.com/tvorobev/Superset.git` - клонируем<br/>
 `docker compose -f docker-compose-non-dev.yml up -d` - запускаем
