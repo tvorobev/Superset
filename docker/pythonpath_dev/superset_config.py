@@ -53,6 +53,19 @@ JINJA_CONTEXT_ADDONS = {
     'parse_param': where_one_str
 }
 
+# ---------------------------------------------------
+# Babel config for translations
+# ---------------------------------------------------
+# Setup default language
+BABEL_DEFAULT_LOCALE = "ru"
+# Your application default translation path
+BABEL_DEFAULT_FOLDER = "superset/translations"
+# The allowed translation for your app
+LANGUAGES = {
+    "en": {"flag": "us", "name": "English"},
+    "ru": {"flag": "ru", "name": "Russian"},
+}
+
 logger = logging.getLogger()
 
 DATABASE_DIALECT = os.getenv("DATABASE_DIALECT")
