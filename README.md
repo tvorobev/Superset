@@ -10,3 +10,5 @@
 `git clone https://github.com/tvorobev/Superset.git` - клонируем<br/>
 `chmod -R 777 .` - по умолчанию прав нет<br/>
 `docker compose -f docker-compose-non-dev.yml up -d` - запускаем
+
+![Локализация РФ](https://github.com/tvorobev/Superset/blob/main/ru_lang.jpg)
