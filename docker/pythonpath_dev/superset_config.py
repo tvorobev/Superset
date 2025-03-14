@@ -57,7 +57,7 @@ JINJA_CONTEXT_ADDONS = {
 # Babel config for translations
 # ---------------------------------------------------
 # Setup default language
-BABEL_DEFAULT_LOCALE = "ru"
+BABEL_DEFAULT_LOCALE = "en"
 # Your application default translation path
 BABEL_DEFAULT_FOLDER = "superset/translations"
 # The allowed translation for your app
