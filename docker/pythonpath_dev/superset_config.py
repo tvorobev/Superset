@@ -25,32 +25,36 @@ import os
 
 from celery.schedules import crontab
 from flask_caching.backends.filesystemcache import FileSystemCache
-from typing import Any
+from flask import session, redirect, g, request
 
-def where_one_str(values: list[Any], mark: str = "'") -> str:
-    """
-    Unpacking values[0] value and return him a string type
+from flask_appbuilder import expose, IndexView
 
-        >>> where_one_str(["b"])
-        'b'
-        >>> where_one_str([7, 'b', 8])
-        '7'
+from superset.extensions import (
+    appbuilder,
+)
 
-    """
+from superset.utils.core import (
+    get_user_id,
+)
 
-    def unpack_val(value: Any) -> str:
-        if isinstance(value, str):
-            value = value.replace(mark, '')
-            return f"{value}"
-        return str(value)
+from superset.superset_typing import FlaskResponse
 
-    res_value = unpack_val(values[0])
+# import for keycloak
+import jwt
+from flask_appbuilder.security.manager import AUTH_OAUTH
+from superset.security import SupersetSecurityManager
 
-    return f"{res_value}"
+logger = logging.getLogger()
 
+def get_locale():
+    x = session["locale"]
+
+    logger.info(f"session language is: {x}")
+
+    return x
 
 JINJA_CONTEXT_ADDONS = {
-    'parse_param': where_one_str
+    'get_locale': get_locale,
 }
 
 # ---------------------------------------------------
@@ -63,10 +67,8 @@ BABEL_DEFAULT_FOLDER = "superset/translations"
 # The allowed translation for your app
 LANGUAGES = {
     "en": {"flag": "us", "name": "English"},
-    "ru": {"flag": "ru", "name": "Russian"},
+    "ru": {"flag": "ru", "name": "Russian"}
 }
-
-logger = logging.getLogger()
 
 DATABASE_DIALECT = os.getenv("DATABASE_DIALECT")
 DATABASE_USER = os.getenv("DATABASE_USER")
@@ -98,66 +100,120 @@ REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 REDIS_CELERY_DB = os.getenv("REDIS_CELERY_DB", "0")
 REDIS_RESULTS_DB = os.getenv("REDIS_RESULTS_DB", "1")
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
-REDIS_USER = os.getenv("REDIS_USER", "")
-REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
 
 RESULTS_BACKEND = FileSystemCache("/app/superset_home/sqllab")
 
 CACHE_CONFIG = {
     "CACHE_TYPE": "RedisCache",
-    "CACHE_DEFAULT_TIMEOUT": 15,
+    "CACHE_DEFAULT_TIMEOUT": 5,
     "CACHE_KEY_PREFIX": "superset_",
     "CACHE_REDIS_HOST": REDIS_HOST,
-    "CACHE_REDIS_URL": REDIS_URL
-#    "CACHE_REDIS_PORT": REDIS_PORT,
-#    "CACHE_REDIS_DB": REDIS_RESULTS_DB,
-#    "CACHE_REDIS_PASSWORD": REDIS_PASSWORD
+    "CACHE_REDIS_PORT": REDIS_PORT,
+    "CACHE_REDIS_DB": REDIS_RESULTS_DB,
 }
 DATA_CACHE_CONFIG = CACHE_CONFIG
 
 
-class CeleryConfig:
-    broker_url = REDIS_URL
-    imports = ("superset.sql_lab",)
-    result_backend = REDIS_URL
-    worker_prefetch_multiplier = 1
-    task_acks_late = False
-    beat_schedule = {
-        "reports.scheduler": {
-            "task": "reports.scheduler",
-            "schedule": crontab(minute="*", hour="*"),
-        },
-        "reports.prune_log": {
-            "task": "reports.prune_log",
-            "schedule": crontab(minute=10, hour=0),
-        },
-    }
+CELERY_CONFIG = None
 
-
-CELERY_CONFIG = CeleryConfig
-
-FEATURE_FLAGS = {
-    "ALERT_REPORTS": True,
-    "DRILL_BY": True,
-    "DRILL_TO_DETAIL": True,
-    "HORIZONTAL_FILTER_BAR": True,
-    "DASHBOARD_CROSS_FILTERS": True,
-    "ENABLE_TEMPLATE_PROCESSING": True,
-    "TAGGING_SYSTEM": True,
-    "HORIZONTAL_FILTER_BAR": True,
-    "ENABLE_EXPLORE_DRAG_AND_DROP": True,
-    "DASHBOARD_RBAC": True,
-    "LISTVIEWS_DEFAULT_CARD_VIEW": True,
-}
-WTF_CSRF_TIME_LIMIT = None
-WTF_CSRF_EXEMPT_LIST = []
+FEATURE_FLAGS = {"ALERT_REPORTS": False,
+                 "ENABLE_TEMPLATE_PROCESSING": True,
+                 "DASHBOARD_RBAC": True,
+                 "HORIZONTAL_FILTER_BAR": True,
+                 "TAGGING_SYSTEM": True}
 ALERT_REPORTS_NOTIFICATION_DRY_RUN = True
 WEBDRIVER_BASEURL = "http://superset:8088/"
 # The base URL for the email report hyperlinks.
 WEBDRIVER_BASEURL_USER_FRIENDLY = WEBDRIVER_BASEURL
+HTML_SANITIZATION = False
+TALISMAN_ENABLED = False
+SQLALCHEMY_POOL_SIZE = 70
+SQLALCHEMY_MAX_OVERFLOW = 70
+SQLALCHEMY_POOL_TIMEOUT = 30
+
+PREVIOUS_SECRET_KEY = "TEST_NON_DEV_SECRET"
+SECRET_KEY = "PROD_NON_DEV_SECRET"
 
 SQLLAB_CTAS_NO_LIMIT = True
+
+
+# # keycloak integration
+
+#AUTH_TYPE = AUTH_OAUTH
+
+# registration configs
+AUTH_USER_REGISTRATION = True  # allow registration users who are not already in the FAB DB
+AUTH_USER_REGISTRATION_ROLE = "Public"  # this role will be given in addition to any AUTH_ROLES_MAPPING
+AUTH_ROLES_SYNC_AT_LOGIN = True # always check roles on login, not only on registration
+
+# the list of providers which the user can choose from
+host_keycloak = "1.1.1.1"
+port_keycloak = "8080"
+realm = "master"
+client_secret = "blabla"
+client_id = "Superset"
+OAUTH_PROVIDERS = [
+    {
+        "name": "keycloak",
+        "icon": "fa-key",
+        "token_key": "access_token",
+        "remote_app": {
+            "client_id": f"{client_id}", # change to your client id
+            "client_secret": f"{client_secret}", # change to your client secret
+            "api_base_url": f"http://{host_keycloak}:{port_keycloak}/realms/{realm}/protocol/openid-connect", # change to your domain and realm
+            "client_kwargs": {
+                "scope": "openid profile email roles",
+                "roles_key": "realm_access.roles",
+                "token_endpoint_auth_method": "client_secret_post"
+            },
+            "server_metadata_url": f"http://{host_keycloak}:{port_keycloak}/realms/{realm}/.well-known/openid-configuration", # change to your domain
+            "access_token_url": f"http://{host_keycloak}:{port_keycloak}/realms/{realm}/protocol/openid-connect/token", # change to your domain
+            "authorize_url": f"http://{host_keycloak}:{port_keycloak}/realms/{realm}/protocol/openid-connect/auth", # change to your domain
+            "request_token_url": None,
+        },
+    },
+]
+
+AUTH_ROLES_MAPPING = {
+"KeyCloakSupersetAdmin": ["Admin"]
+}
+
+class CustomSsoSecurityManager(SupersetSecurityManager):
+
+    def oauth_user_info(self, provider, response=None):
+        #logging.debug("Oauth2 provider: {0}.".format(provider))
+        if provider == 'keycloak':
+            #logging.info("keycloak - LOGIN")
+            me = self.appbuilder.sm.oauth_remotes[provider].get('openid-connect/userinfo')
+            me.raise_for_status()
+            me_data = me.json()
+            #logging.debug(f"user_data from keycloack: {me_data}")
+            #logging.debug(f"response from keycloack: {response}")
+            # in access_token life roles for user
+            access_token = response.get("access_token")
+            decoded_access_token = jwt.decode(access_token, options={"verify_signature": False})
+            #logging.debug(f"decoded_access_token: {decoded_access_token}")
+            roles = decoded_access_token.get("realm_access").get("roles")
+            return { 'username' : me_data['preferred_username']
+                    , 'first_name' : me_data['given_name']
+                    , 'last_name' : me_data['family_name']
+                    , 'role_keys': roles
+                    }
+
+#CUSTOM_SECURITY_MANAGER = CustomSsoSecurityManager
+
+# custom welcome page
+class SupersetIndexView(IndexView):
+    @expose("/")
+    def index(self) -> FlaskResponse:
+        if not g.user or not get_user_id():
+            # Do steps for anonymous user e.g.
+            return redirect("/login")
+        # Do steps for authenticated user e.g.
+        return redirect("/superset/dashboard/1")
+
+
+FAB_INDEX_VIEW = f"{SupersetIndexView.__module__}.{SupersetIndexView.__name__}"
 
 #
 # Optionally import superset_config_docker.py (which will have been included on
